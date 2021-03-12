@@ -10,14 +10,12 @@ client = asana.Client.access_token(personal_access_token)
 
 # # Get your user info
 me = client.users.me()
-# print('results', me)
+print('results', me)
 # # Print out your information
-# print("Hello world! " + "My name is " + me['name'] + "!")
+#print("Hello world! " + "My name is " + me['name'] + "!")
 
 workplace = client.workspaces.get_workspaces({}, opt_pretty=True)
-print('w_gid', workplace)
 workplace_gid = list(workplace)[0]['gid']
-print('w_gid', workplace_gid)
 
 # w_tags = client.tags.get_tags_for_workspace(workplace_gid, {}, opt_pretty=True)
 # print('w_tags', list(w_tags))
@@ -43,7 +41,6 @@ duplicate_params = {
     "name": '',   
 }
 
-
 substasks_dates = {
     'social_ads': [{"due_on": "2021-01-28", "completed": False}],
     'social_posts': [{"due_on": "2021-01-28", "completed": False, "assignee": "12345"}, {"due_on": "2021-02-12", "completed": False, "assignee": "12345"}],
@@ -52,7 +49,6 @@ substasks_dates = {
     'blog': [{"due_on": "2020-12-30", "completed": False}],
     'seo': {"due_on": "2021-01-31", "completed": False},     
 }
-
 
 # '1198740358621275'
 project_lists = [
@@ -88,81 +84,97 @@ project_lists = [
     # {'gid': '1188728043259814', 'name': 'Hercules | Teodoro'},
 ]
 
-
 tasks_type = 'seo'
 new_month = ' February'
 
 def get_projects():
+    ## gets project from worksplace and filter it 
+    
     result = client.projects.get_projects_for_workspace(workplace_gid, {}, opt_pretty=True)
-    # print(list(result))
+    
     for item in result: 
         if item['name'].find('|') != -1 and item['name'].find('Onboarding') == -1:
             item.pop('resource_type', None)
-            print(item)
+            # print(item)
 
 # get_projects()
 
 def duplicate_template_tasks():
+    ## duplicate task from temaplate
+
     tasks = client.tasks.get_tasks_for_tag(tags_gids[tasks_type], {}, opt_pretty=True)
     tasks_ls = list(tasks)
-    print('g_tasks: ', tasks_ls)
+    
     count_task = 0    
     
+    ## duplicate tasks and edit them
     for i, item in enumerate(project_lists):
-        # duplicate_params['name'] =  item[0] + tasks[0]['name'].split(' ', 1)[1] 
-        # if i < 2:
-            duplicate_params['name'] =  item['name'].split('|', 1)[0] + tasks_ls[0]['name'].split(' ', 1)[1] .rsplit(' ', 1)[0]  + new_month
-            print(duplicate_params)
-            duplicate_new_task = client.tasks.duplicate_task(tasks_ls[0]['gid'], duplicate_params, opt_pretty=True)
-            print('duplicate: ', duplicate_new_task['new_task'])
+        ## duplicate tasks
+        duplicate_params['name'] =  item['name'].split('|', 1)[0] + tasks_ls[0]['name'].split(' ', 1)[1] .rsplit(' ', 1)[0]  + new_month
+        duplicate_new_task = client.tasks.duplicate_task(tasks_ls[0]['gid'], duplicate_params, opt_pretty=True)
+        
+        ## get sections  
+        section = client.sections.get_sections_for_project(item['gid'], {}, opt_pretty=True)
+        section_ls = list(section)
+        
+        ## find blog sections and get gid
+        blog_section_gid = ''
 
-            result = client.sections.get_sections_for_project(item['gid'], {}, opt_pretty=True)
-            result_ls = list(result)
-            blog_section_gid = ''
-            for i, item in enumerate(result_ls):
-                if item['name'] == 'Blogs':
-                    print('fdf', item['gid'])
-                    blog_section_gid = item['gid']
-            print(list(result))
-            # update_task = client.tasks.update_task(duplicate_new_task['new_task']['gid'], {'projects': item['gid']}, opt_pretty=True)
-            # print('update_tasks', update_task['gid'])
-            # section_update = client.tasks.add_project_for_task(duplicate_new_task['new_task']['gid'], {"project": item['gid'], "section": blog_section_gid}, opt_pretty=True)
+        for i, item in enumerate(section_ls):
+            if item['name'] == 'Blogs':
+                blog_section_gid = item['gid']
 
-            section_update = client.sections.add_task_for_section(blog_section_gid, {'task': duplicate_new_task['new_task']['gid']}, opt_pretty=True)
-            print('section_updated', section_update)
-            count_task += 1
+        ## add task to section
+        section_update = client.sections.add_task_for_section(blog_section_gid, {'task': duplicate_new_task['new_task']['gid']}, opt_pretty=True)
+        
+        count_task += 1
 
 # duplicate_template_tasks()
 
+def update_subtasks(duplicate_new_task, new_task_data):
+    ## get old subtaks
+    new_susbtasks = client.tasks.get_subtasks_for_task(duplicate_new_task['new_task']['gid'], {}, opt_pretty=True) 
+    new_susbtasks_ls =  list(new_susbtasks)
+
+    ## update substask
+    for i, subtask in enumerate(substasks_dates[tasks_type]):
+        substasks_dates[tasks_type][i]['assignee'] = new_task_data['assignee']['gid']  
+        update_sub_task = client.tasks.update_task(new_susbtasks_ls[i]['gid'], subtask, opt_pretty=True)
+
+    print('update_subtasks', update_sub_task['gid'])
+
+def update_tasks(duplicate_new_task):
+    if tasks_type == 'seo': 
+            ##  update seo tasks ||seo has no subtasks
+            update_task = client.tasks.update_task(duplicate_new_task['new_task']['gid'], substasks_dates[tasks_type], opt_pretty=True)
+    else:
+        ## update other tasks 
+        new_task_data = client.tasks.get_task(duplicate_new_task['new_task']['gid'], {}, opt_pretty=True)
+        update_task = client.tasks.update_task(duplicate_new_task['new_task']['gid'], {'completed': False}, opt_pretty=True)
+        time.sleep(4)
+        
+        ## update substask
+        update_subtasks(duplicate_new_task, new_task_data)
+
+
 def duplicate_old_tasks():
+    ## duplicate task from old task 
+
     count_task = 0    
+    
+    ## get tasks from gids
     g_ads_tasks = client.tasks.get_tasks_for_tag(tags_gids[tasks_type], {}, opt_pretty=True)
     g_ads_tasks_ls = list(g_ads_tasks)
-    print('g_tasks: ', g_ads_tasks_ls)
-    
+
     for task in g_ads_tasks_ls:
-        # duplicate_params['name'] =  task['name'].split(' ', 1)[1]  + ' December' # for Gads
+        ## duplicate tasks
         duplicate_params['name'] =  task['name'].rsplit(' ', 1)[0]  + new_month
         duplicate_new_task = client.tasks.duplicate_task(task['gid'], duplicate_params, opt_pretty=True)
-        print('duplicate: ', duplicate_new_task['new_task'])
+        
         count_task += 1
-        if tasks_type == 'seo': 
-            update_task = client.tasks.update_task(duplicate_new_task['new_task']['gid'], substasks_dates[tasks_type], opt_pretty=True)
-            print('update_tasks', update_task['gid'])
-        else:
-            new_task_data = client.tasks.get_task(duplicate_new_task['new_task']['gid'], {}, opt_pretty=True)
-            print('new_task_data: ', new_task_data['assignee']['gid'])    
-            update_task = client.tasks.update_task(duplicate_new_task['new_task']['gid'], {'completed': False}, opt_pretty=True)
-            
-            time.sleep(4)
-            new_susbtasks = client.tasks.get_subtasks_for_task(duplicate_new_task['new_task']['gid'], {}, opt_pretty=True) 
-            new_susbtasks_ls =  list(new_susbtasks)
-            print('new_susbtasks', new_susbtasks_ls) 
-            for i, subtask in enumerate(substasks_dates[tasks_type]):
-                print(new_task_data['assignee']['gid'], i)
-                substasks_dates[tasks_type][i]['assignee'] = new_task_data['assignee']['gid']  
-                update_sub_task = client.tasks.update_task(new_susbtasks_ls[i]['gid'], subtask, opt_pretty=True)
-                print('update_subtasks', update_sub_task['gid'])
+        ## update tasks and update substask
+        update_tasks(duplicate_new_task)
+
         print('iteration:', count_task) 
     print('done', count_task) 
 
@@ -170,9 +182,11 @@ duplicate_old_tasks()
 
 
 # def duplicate_social_ads_funct():
+
 #     social_ads_tasks = client.tasks.get_tasks_for_tag(tags_gids['social_ads_tag'], {}, opt_pretty=True)
 #     social_ads_tasks_ls = list(social_ads_tasks)
 #     print('tasks: ', social_ads_tasks_ls)
+
 #     for task in social_ads_tasks_ls:
 #         duplicate_params['data']['name'] = task['name']
 #         # print( duplicate_params)
@@ -180,7 +194,4 @@ duplicate_old_tasks()
 #     print('duplicate: ', duplicate_social_ads)
 
 # duplicate_social_ads_funct()
-# 1/1136474623142964:bc6d6efca1c14e7a738fe4bb590c92f91
-# 1/1136474623142964:bc6d6efca1c24e7a50fe4bb5780c92f21
-# 1/1136474623142964:9583d57b900986fef65a5e12183a3cac
-# 1/1136474623142964:bc6d6Ofca1c24e7a50fe4bb590c92f921
+
